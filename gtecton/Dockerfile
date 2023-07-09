@@ -1,12 +1,10 @@
-FROM ubuntu:22.04
+FROM krccl/openmpi_base:403
+
 RUN apt-get update \
 &&  DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    build-essential \
-    gcc-11 g++-11 gfortran-11 curl wget make libnuma-dev libnl-3-200 autoconf \
-    libibverbs-dev python3-jinja2 libx11-dev
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 7 \
-&&  update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 7 \
-&&  update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-11 7
+    wget  groff \
+    python3-jinja2 libx11-dev \ 
+    ghostscript gdal-bin graphicsmagick ffmpeg gmt gmt-dcw gmt-gshhg 
 
 #Install CMake
 WORKDIR /software
@@ -14,19 +12,11 @@ RUN curl -L https://github.com/Kitware/CMake/releases/download/v3.24.0/cmake-3.2
        sh /tmp/cmake-3.24.0-linux-x86_64.sh --prefix=/software --skip-license && \
        rm -rf /tmp/*
 
-#Install OpenMPI 
-WORKDIR /tmp
-RUN curl -o /tmp/openmpi-4.0.3.tar https://download.open-mpi.org/release/open-mpi/v4.0/openmpi-4.0.3.tar.gz \
-&&  tar xvf /tmp/openmpi-4.0.3.tar 
-WORKDIR /tmp/openmpi-4.0.3
-RUN ./configure --prefix=/software --with-verbs 
-RUN make -j 8 VERBOSE=1
-RUN make install
-WORKDIR /tmp
-RUN rm -rf /tmp/openmpi-4.0.3.tar /tmp/openmpi-4.0.3
-RUN ldconfig 
 ENV LD_LIBRARY_PATH /software/lib:/usr/local/lib:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
-ENV PATH /software/bin:/usr/local/bin:${PATH}
+ENV PATH /software/bin:/software/gtecton/build:/software/libexec/awk:/usr/local/bin:${PATH}
+
+
+
 
 #Install BLAS and LAPACK
 WORKDIR /tmp
@@ -38,7 +28,7 @@ RUN cmake -DCMAKE_INSTALL_PREFIX=/software -DBUILD_SHARED_LIBS=ON .. \
 &&  make install 
 WORKDIR /tmp
 RUN rm -rf /tmp/lapack-3.11.tar.gz /tmp/lapack-3.11 
-ENV LD_LIBRARY_PATH /software/lib64:${LD_LIBRARY_PATH}
+
 
 
 #Install PETSc
@@ -49,7 +39,7 @@ RUN tar xvf /tmp/petsc-3.17.2.tar.gz
 WORKDIR /software/petsc-3.17.2 
 ENV PETSC_DIR /software/petsc-3.17.2
 ENV PETSC_ARCH=arch-linux-x86_64
-RUN ./configure  --with-mpi-dir=/software \
+RUN ./configure  --with-mpi-dir=/usr/local \
     --with-blaslapack-dir=/software \
     --with-debugging=0 --with-x=0 \
     --with-shared-libraries=0 \
@@ -75,12 +65,24 @@ WORKDIR /software
 COPY  gtecton.tgz /software
 RUN tar xvf gtecton.tgz 
 WORKDIR /software/gtecton/build
-RUN cmake cmake -DCMAKE_C_COMPILER=mpicc -DCMAKE_Fortran_COMPILER=mpif90  -DMPI_HOME=/software -DMETIS_LIBRARIES=/software/metis-5.1.0/build/Linux-x86_64/libmetis/libmetis.a -DMETIS_INCLUDE_DIR=/software/metis-5.1.0/include .. \
-&& make -j 4 VERBOSE=1 \
-&& make install
+RUN cmake -DCMAKE_C_COMPILER=mpicc -DCMAKE_Fortran_COMPILER=mpif90  -DMPI_HOME=/usr/local \
+     -DMETIS_LIBRARIES=/software/metis-5.1.0/build/Linux-x86_64/libmetis/libmetis.a -DMETIS_INCLUDE_DIR=/software/metis-5.1.0/include \
+     -DCMAKE_EXE_LINKER_FLAGS=-L/software/lib .. \
+&& make -j 1 VERBOSE=1 
 WORKDIR /workspace
-RUN rm -rf /software/gtecton.tgz /software/gtecton
+RUN rm -rf /software/gtecton.tgz 
 
-ENV PATH /software/bin:${PATH}
-ENV LD_LIBRARY_PATH /software/lib:${LD_LIBRARY_PATH}
+
+#Install right version of awk
+WORKDIR /software
+RUN wget -O /tmp/gawk-4.2.1.tar.xz https://ftp.gnu.org/gnu/gawk/gawk-4.2.1.tar.xz
+RUN tar xvf /tmp/gawk-4.2.1.tar.xz 
+WORKDIR /software/gawk-4.2.1 
+RUN ./configure --prefix=/software \
+&&  make VERBOSE=1 \ 
+&&  make install   
+WORKDIR /workspace
+
+RUN rm -rf /tmp/gawk-4.2.1.tar.xz /software/gawk-4.2.1 
+
 
