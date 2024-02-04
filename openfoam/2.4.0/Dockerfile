@@ -1,28 +1,36 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 # General system updates
-RUN apt-get update && apt-get install -y \
-    git build-essential gfortran curl wget vim
 
-# Install MPICH 3.1.4 and cleanup  
-WORKDIR /tmp
-RUN curl  http://www.mpich.org/static/downloads/3.1.4/mpich-3.1.4.tar.gz --output mpich-3.1.4.tar.gz 
-RUN tar xvf mpich-3.1.4.tar.gz
-	
-WORKDIR /tmp/mpich-3.1.4
-RUN ./configure MPILIBNAME=mpich --prefix=/usr/local CFLAGS="-fPIC" CXXFLAGS="-fPIC" FFLAGS="-fPIC"
-RUN make -j 8 VERBOSE=1
-RUN make install
-WORKDIR /
-RUN rm -rf /tmp/mpich*
-RUN ldconfig 
-ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc-5 g++-5 gfortran-5 curl make libnuma-dev libnl-3-200 autoconf vim python3.6
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-5 7 \
+&&  update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-5 7  \
+&&  update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-5 7 \
+&&  update-alternatives --install /usr/bin/python python /usr/bin/python3.6 2
+
+
+
+WORKDIR /software
+RUN curl -L https://www.mpich.org/static/downloads/3.3.2/mpich-3.3.2.tar.gz -o mpich-3.3.2.tar.gz \
+&&  tar xvf mpich-3.3.2.tar.gz \
+&&  cd /software/mpich-3.3.2 \
+&&  ./configure --prefix=/software \
+&&  make -j 8 VERBOSE=1 \
+&&  make install
+RUN rm -rf /software/mpich-3.3.2.tar.gz /software/mpich-3.3.2
+
+ENV PATH=/software/bin:${PATH}
+ENV LD_LIBRARY_PATH=/software/lib:${LD_LIBRARY_PATH}
+RUN ldconfig
+
 
 # Update OpenFOAM specific system libraries
 RUN apt-get install -y \
-	flex bison cmake zlib1g-dev libboost-system-dev libboost-thread-dev libcgal-dev \
+    git flex bison cmake zlib1g-dev libboost-system-dev libboost-thread-dev libcgal-dev \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
     qt4-dev-tools libqt4-dev libqt4-opengl-dev freeglut3-dev libqtwebkit-dev libglu1-mesa-dev \
-    python python-dev 
+    python python-dev wget 
     
     
 RUN mkdir /app
@@ -30,9 +38,10 @@ ARG OFINSTDIR=/app/OpenFOAM
 ARG OFVERSION=2.4.x
 WORKDIR $OFINSTDIR
 
+SHELL ["/bin/bash","-c"]
 # get source
-RUN git clone git://github.com/OpenFOAM/OpenFOAM-2.4.x.git \
-	&& git clone https://github.com/OpenFOAM/ThirdParty-2.4.x.git
+RUN git clone https://github.com/OpenFOAM/OpenFOAM-2.4.x.git \
+&&  git clone https://github.com/OpenFOAM/ThirdParty-2.4.x.git
 
 # definitions for the pref.sh and bashrc files. perf.sh, if exists, is sourced by bashrc
 
@@ -41,8 +50,9 @@ ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
 
 RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $OFPREFS \
 	&& echo '#---------------------------#' >> ${OFPREFS} \
+        && echo 'WM_PROJECT_USER_DIR=/workdir/$WM_PROJECT/OpenFOAM-$WM_PROJECT_VERSION' \
 	&& echo 'export WM_MPLIB=SYSTEMMPI' >> ${OFPREFS} \
-	&& echo 'export MPI_ROOT="/usr/local"' >> ${OFPREFS} \
+	&& echo 'export MPI_ROOT="/software"' >> ${OFPREFS} \
 	&& echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
 	&& echo 'export MPI_ARCH_INC="-I${MPI_ROOT}/include"' >> ${OFPREFS} \
 	&& echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OFPREFS} 
@@ -104,7 +114,7 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $O
 	    's=\(YY\_FLEX\_SUBMINOR\_VERSION\)=YY_FLEX_MINOR_VERSION < 6 \&\& \1='
 
 # OpenFOAM compilation 
- ENV WM_NCOMPPROCS=4
+ ENV WM_NCOMPPROCS=8
  RUN . ${OFBASHRC} \
 	&& cd $WM_PROJECT_DIR \
 	&& export QT_SELECT=qt4 \
@@ -115,62 +125,64 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $O
 	&& cd $WM_PROJECT_DIR \
 	&& export QT_SELECT=qt4 \
 	&& ./Allwmake 2>&1 | tee log.AllwmakeSummary
+
 WORKDIR /workdir
 
-RUN sed -i 's;export WM_PROJECT_USER_DIR=\$HOME/\$WM_PROJECT/\$USER-\$WM_PROJECT_VERSION;export WM_PROJECT_USER_DIR=/workdir/\$WM_PROJECT/ofuser-\$WM_PROJECT_VERSION;g' ${OFBASHRC} 
+ENV FOAM_TUTORIALS=/app/OpenFOAM/OpenFOAM-2.4.x/tutorials
+ENV LD_LIBRARY_PATH=/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/gperftools-svn/lib:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0/lib/paraview-4.1:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib/mpi-system:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64GccDPOpt/lib/mpi-system:/workdir/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib/dummy:/software/lib
+ENV MPI_BUFFER_SIZE=20000000
+ENV WM_PROJECT_INST_DIR=/app/OpenFOAM
+ENV FOAM_RUN=/workdir/OpenFOAM/OpenFOAM-2.4.x/run
+ENV ParaView_MAJOR=4.1
+ENV WM_THIRD_PARTY_DIR=/app/OpenFOAM/ThirdParty-2.4.x
+ENV WM_LDFLAGS=-m64
+ENV FOAM_APP=/app/OpenFOAM/OpenFOAM-2.4.x/applications
+ENV WM_CXXFLAGS='-m64 -fPIC'
+ENV FOAM_UTILITIES=/app/OpenFOAM/OpenFOAM-2.4.x/applications/utilities
+ENV FOAM_APPBIN=/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/bin
+ENV ParaView_DIR=/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0
+ENV WM_PRECISION_OPTION=DP
+ENV FOAM_SOLVERS=/app/OpenFOAM/OpenFOAM-2.4.x/applications/solvers
+ENV FOAM_EXT_LIBBIN=/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64GccDPOpt/lib
+ENV MPI_ARCH_LIBS='-L/software/lib -L/software/lib -lmpich -lrt'
+ENV WM_CC=gcc
+ENV FOAM_USER_APPBIN=/workdir/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/bin
+ENV FOAM_SIGFPE=
+ENV WM_PROJECT_USER_DIR=/workdir/OpenFOAM/OpenFOAM-2.4.x
+ENV WM_OPTIONS=linux64GccDPOpt
+ENV WM_LINK_LANGUAGE=c++
+ENV WM_OSTYPE=POSIX
+ENV WM_PROJECT=OpenFOAM
+ENV ParaView_INCLUDE_DIR=/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0/include/paraview-4.1
+ENV FOAM_LIBBIN=/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib
+ENV MPI_ARCH_PATH=/software
+ENV WM_CFLAGS='-m64 -fPIC'
+ENV MPI_ARCH_FLAGS=-DMPICH_SKIP_MPICXX
+ENV WM_ARCH=linux64
+ENV FOAM_SRC=/app/OpenFOAM/OpenFOAM-2.4.x/src
+ENV FOAM_ETC=/app/OpenFOAM/OpenFOAM-2.4.x/etc
+ENV FOAM_SETTINGS=
+ENV FOAM_SITE_APPBIN=/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/bin
+ENV FOAM_SITE_LIBBIN=/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/lib
+ENV WM_COMPILER_LIB_ARCH=64
+ENV WM_COMPILER=Gcc
+ENV ParaView_VERSION=4.1.0
+ENV WM_DIR=/app/OpenFOAM/OpenFOAM-2.4.x/wmake
+ENV WM_ARCH_OPTION=64
+ENV WM_PROJECT_VERSION=2.4.x
+ENV WM_MPLIB=SYSTEMMPI
+ENV FOAM_INST_DIR=/app/OpenFOAM
+ENV WM_COMPILE_OPTION=Opt
+ENV MPI_ARCH_INC=-I/software/include
+ENV WM_CXX=g++
+ENV FOAM_USER_LIBBIN=/workdir/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib
+ENV PV_PLUGIN_PATH=/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib/paraview-4.1
+ENV FOAM_MPI=mpi-system
+ENV FOAM_JOB_DIR=/app/OpenFOAM/jobControl
+ENV WM_PROJECT_DIR=/app/OpenFOAM/OpenFOAM-2.4.x
+ENV PATH=/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/gperftools-svn/bin:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0/bin:/workdir/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/bin:/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/bin:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/bin:/app/OpenFOAM/OpenFOAM-2.4.x/bin:/app/OpenFOAM/OpenFOAM-2.4.x/wmake:/software/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV MPI_ROOT=/software
 
-ENV WM_LINK_LANGUAGE=c++ \
-FOAM_SOLVERS="/app/OpenFOAM/OpenFOAM-2.4.x/applications/solvers" \
-FOAM_EXT_LIBBIN="/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64GccDPOpt/lib" \
-FOAM_APPBIN=/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/bin \
-FOAM_TUTORIALS=/app/OpenFOAM/OpenFOAM-2.4.x/tutorials \
-FOAM_JOB_DIR=/app/OpenFOAM/jobControl \
-WM_ARCH=linux64 \
-WM_OSTYPE=POSIX \
-MPI_ARCH_PATH=/usr/local \
-WM_THIRD_PARTY_DIR=/app/OpenFOAM/ThirdParty-2.4.x \
-FOAM_SITE_APPBIN=/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/bin \
-FOAM_APP=/app/OpenFOAM/OpenFOAM-2.4.x/applications \
-WM_CXXFLAGS="-m64 -fPIC" \
-WM_CFLAGS="-m64 -fPIC" \
-WM_PROJECT_VERSION=2.4.x \
-FOAM_SITE_LIBBIN=/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/lib \
-LD_LIBRARY_PATH="\${LD_LIBRARY_PATH}:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/gperftools-svn/lib:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0/lib/paraview-4.1:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib/mpi-system:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64GccDPOpt/lib/mpi-system:/workdir/OpenFOAM/ofuser-2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64GccDPOpt/lib:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib/dummy:/usr/local/lib" \
-MPI_BUFFER_SIZE=20000000 \
-WM_COMPILER_LIB_ARCH=64 \
-FOAM_SRC="/app/OpenFOAM/OpenFOAM-2.4.x/src" \
-FOAM_SIGFPE= \
-ParaView_DIR="/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0" \
-WM_PROJECT_INST_DIR=/app/OpenFOAM \
-FOAM_UTILITIES="/app/OpenFOAM/OpenFOAM-2.4.x/applications/utilities" \
-WM_CXX=g++ \
-WM_PROJECT_DIR="/app/OpenFOAM/OpenFOAM-2.4.x" \
-WM_NCOMPPROCS=4 \
-WM_PROJECT=OpenFOAM \
-WM_LDFLAGS=-m64 \
-WM_COMPILER=Gcc \
-WM_MPLIB=SYSTEMMPI \
-PATH="\${PATH}:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/gperftools-svn/bin:/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0/bin:/workdir/OpenFOAM/ofuser-2.4.x/platforms/linux64GccDPOpt/bin:/app/OpenFOAM/site/2.4.x/platforms/linux64GccDPOpt/bin:/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/bin:/app/OpenFOAM/OpenFOAM-2.4.x/bin:/app/OpenFOAM/OpenFOAM-2.4.x/wmake:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-FOAM_USER_LIBBIN="/workdir/OpenFOAM/ofuser-2.4.x/platforms/linux64GccDPOpt/lib" \
-MPI_ARCH_LIBS="-L/usr/local/lib -L/usr/local/lib -lmpich -lrt" \
-WM_CC=gcc \
-FOAM_ETC="/app/OpenFOAM/OpenFOAM-2.4.x/etc" \
-PV_PLUGIN_PATH="/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib/paraview-4.1" \
-FOAM_INST_DIR="/app/OpenFOAM" \
-ParaView_INCLUDE_DIR="/app/OpenFOAM/ThirdParty-2.4.x/platforms/linux64Gcc/ParaView-4.1.0/include/paraview-4.1" \
-FOAM_MPI=mpi-system \
-FOAM_LIBBIN="/app/OpenFOAM/OpenFOAM-2.4.x/platforms/linux64GccDPOpt/lib" \
-WM_COMPILE_OPTION=Opt \
-ParaView_VERSION=4.1.0 \
-WM_DIR=/app/OpenFOAM/OpenFOAM-2.4.x/wmake \
-ParaView_MAJOR=4.1 \
-FOAM_SETTINGS= \
-MPI_ARCH_INC=-I/usr/local/include \
-MPI_ARCH_FLAGS=-DMPICH_SKIP_MPICXX \
-MPI_ROOT=/usr/local \
-WM_PROJECT_USER_DIR=/workdir/OpenFOAM/ofuser-2.4.x \
-FOAM_RUN=/workdir/OpenFOAM/ofuser-2.4.x/run \
-WM_OPTIONS=linux64GccDPOpt \
-WM_PRECISION_OPTION=DP \
-WM_ARCH_OPTION=64 \
-FOAM_USER_APPBIN="/workdir/OpenFOAM/ofuser-2.4.x/platforms/linux64GccDPOpt/bin"
+#COPY en*.sh /software/
+#RUN chmod +x /software/entrypoint.sh
+#ENTRYPOINT ["/software/entrypoint.sh"]
