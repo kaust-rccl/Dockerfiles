@@ -42,12 +42,13 @@ RUN pip install tensorflow==${TENSORFLOW_VERSION} \
 #Install Pytorch
 RUN pip install torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION} torchaudio -f https://download.pytorch.org/whl/torch_stable.html
 
-#WORKDIR /opt
+WORKDIR /opt
 # Install Horovod, temporarily using CUDA stubs
-#RUN git clone --recursive https://github.com/horovod/horovod horovod-${HOROVOD_VERSION} && \
-#    cd horovod-${HOROVOD_VERSION} && git fetch --tags --all && \
-#    git checkout v${HOROVOD_VERSION} && git submodule sync && \
-#    git submodule update --init --recursive
+RUN git clone --recursive https://github.com/horovod/horovod horovod-${HOROVOD_VERSION} \
+&&  cd horovod-${HOROVOD_VERSION} && git fetch --tags --all \
+&&  git checkout v${HOROVOD_VERSION} && git submodule sync  \
+&&  git submodule update --init --recursive
 
-#WORKDIR /opt/horovod-${HOROVOD_VERSION}
-#RUN CC=mpicc CXX=mpicxx HOROVOD_WITH_MPI=1 HOROVOD_WITH_PYTORCH=1 HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITHOUT_MXNET=1 HOROVOD_WITHOUT_GLOO=1 python setup.py install
+WORKDIR /opt/horovod-${HOROVOD_VERSION}
+RUN sed -i 's/set(CMAKE_CXX_STANDARD 14)/set(CMAKE_CXX_STANDARD 17)/g' CMakeLists.txt
+RUN CC=mpicc CXX=mpicxx CFLAGS=-fpermissive CXXFLAGS=-fpermissive HOROVOD_WITH_MPI=1 HOROVOD_WITH_PYTORCH=1 HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITHOUT_MXNET=1 HOROVOD_WITHOUT_GLOO=1 MAX_JOBS=1 python setup.py install 
