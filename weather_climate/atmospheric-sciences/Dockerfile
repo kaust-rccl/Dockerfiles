@@ -42,9 +42,11 @@ RUN cd /software && \
 EOF
 
 RUN cd /software/src/rda-prepbufr-decode/install && \
-    ./install.sh && \
-    export LD_LIBRARY_PATH=/software/envs/atmospheric-sciences/lib/:$LD_LIBRARY_PATH && \
-    export PATH=/software/src/rda-prepbufr-decode/exe:$PATH
+    ./install.sh
+
+ENV LD_LIBRARY_PATH=""
+ENV LD_LIBRARY_PATH="/software/envs/atmospheric-sciences/lib/:$LD_LIBRARY_PATH"
+ENV PATH="/software/src/rda-prepbufr-decode/exe:$PATH"
 
 WORKDIR /workdir
 COPY entrypoint.sh /software/entrypoint.sh
